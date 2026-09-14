@@ -330,3 +330,193 @@ From `package.json` browserslist:
 - Error tracking: Not determined (Sentry, LogRocket, or similar not configured in code)
 - Performance monitoring: `reportWebVitals()` exists but endpoint unknown
 - Logging: Browser console only; no centralized logging
+
+## Data Protection
+
+### Data in Transit
+
+- **Protocol:** HTTPS/TLS only (enforced by backend configuration; frontend uses `fetch()` without explicit protocol handling)
+- **API Communication:** All backend requests via HTTPS; assumes backend enforces HTTPS redirects
+- **Session Cookie:** Marked `HttpOnly` and `SameSite` by backend; frontend cannot inspect or modify
+
+**Risk:** If backend is misconfigured or does not enforce HTTPS, credentials could be exposed. Frontend has no control over this layer.
+
+### Data at Rest
+
+- **No frontend storage of sensitive data:** Credentials, tokens, and PII are NOT stored in localStorage, sessionStorage, or IndexedDB
+- **Session-only storage:** User object lives in React Context only; cleared on page refresh or logout
+- **Form data:** Temporarily held in Formik state; cleared on form reset or navigation away
+- **Browser cache:** Static assets (CSS, JS) may be cached by browser; no sensitive data in cache
+
+### Secrets & Credentials
+
+**Frontend Environment Variables (Build-Time):**
+- `REACT_APP_API_URL` — Backend endpoint URL; **not a secret** (publicly visible in network requests)
+- No Google OAuth client ID or secrets stored in frontend code
+- No API keys or database credentials in frontend
+
+**Google OAuth Secrets (Backend-Held):**
+- Google OAuth client ID/secret managed exclusively by backend
+- Frontend redirects to backend OAuth endpoint; backend handles token exchange
+- Frontend never sees OAuth tokens
+
+**Manual Review Flag:**
+- No hardcoded credentials detected in code review
+- Footer contains placeholder email `hackbca@____` (incomplete contact; low risk)
+
+### Data Retention
+
+- **User session:** Duration of browser session (typically hours); cleared on logout or expiry
+- **Project data:** Retained in backend database indefinitely (frontend has no visibility into deletion/archival policies)
+- **Browser cache/cookies:** Cleared per browser settings or session end
+
+### Third-Party Data Sharing
+
+- **Google OAuth:** User ID and email shared with Google as part of OAuth flow; backend stores user record locally
+- **No analytics tracking:** No Google Analytics, Mixpanel, or similar detected in code
+- **No LLM usage:** No AI/LLM third-party integrations found
+
+### Logging & Audit Trail
+
+- **Frontend logging:** Console-only; no centralized logs
+- **Backend audit trail:** Not determined from frontend code; assumed backend logs API calls and auth events
+- **User activity logging:** Frontend cannot audit; backend responsible for tracking CRUD operations
+
+## Security Requirements
+
+### Authentication & Authorization
+
+**Authn:**
+- Google OAuth 2.0 via backend; frontend initiates redirect, backend validates
+- Session cookie set by backend; frontend includes via `credentials: "include"` in fetch calls
+- No multi-factor authentication (MFA) visible in code; backend responsible
+
+**Authz:**
+- Read-only endpoints (e.g., `GET /projects`, `GET /users`) accessible to unauthenticated users
+- Write endpoints (`POST`, `PUT`, `DELETE`) require valid session cookie; backend enforces ownership checks
+- Frontend conditionally hides UI (edit/delete buttons) but relies on backend for enforcement
+
+**Risk:** Frontend UI can be bypassed (e.g., attacker modifies browser console); backend must enforce all authorization checks.
+
+### Threat Model & Considerations
+
+| **Threat** | **Attack Vector** | **Mitigation** | **Residual Risk** |
+|-----------|-------------------|----------------|------------------|
+| **XSS (Cross-Site Scripting)** | Injected JS in project description or user input | React automatically escapes JSX; Formik/user input sanitized by form validation | Low; assumes React/React Router are not compromised |
+| **CSRF (Cross-Site Request Forgery)** | Malicious site triggers API request on behalf of user | HTTPS + SameSite cookies; backend should validate CSRF tokens | Medium; frontend does not implement explicit CSRF protection (e.g., no X-CSRF-Token header) |
+| **Man-in-the-Middle (MitM)** | Attacker intercepts HTTPS traffic | TLS/HTTPS enforced by backend; frontend uses `fetch()` | Low; assumes valid certificates and HTTPS enforcement |
+| **Session Hijacking** | Attacker steals session cookie | HttpOnly cookies; SameSite attribute (backend-controlled) | Low for HttpOnly; higher if cookies are not SameSite |
+| **Credential Exposure** | Hardcoded secrets in code/config | No secrets detected in frontend code; backend holds OAuth secrets | Low; frontend is stateless |
+| **Dependency Vulnerabilities** | Unpatched npm packages with exploits | npm dependencies pinned in package-lock.json; no automated update strategy found | Medium; old versions of React (17) and react-router (v6 early) may have unpatched vulns |
+| **Unauthorized Project Deletion** | User deletes another user's project | Backend enforces ownership check on DELETE | Medium; frontend relies on backend validation |
+
+### Dependency Security Posture
+
+- **React 17:** LTS version; consider upgrading to React 18+ for newer security patches
+- **react-router-dom v6:** Early v6 release; minor updates available for bug fixes
+- **Formik v2.2.9:** Stable; no known critical vulns
+- **Dependencies outdated:** No `.npmrc` or lock file auto-update policy found; manual review recommended
+
+**Recommendation:** Audit npm dependencies for known vulnerabilities via `npm audit`; implement automated dependency updates or scheduled manual reviews.
+
+### Compliance & Data Governance
+
+- **Data Residency:** Not determined from code (backend database location unknown)
+- **GDPR/Privacy:** User consent for Google OAuth managed by backend; frontend has no explicit privacy controls
+- **PII Handling:** Project descriptions, URLs, and owner emails are user-generated; frontend displays without encryption or redaction
+- **Backup/Recovery:** Not visible in frontend; backend responsibility
+
+## Integrations
+
+### Backend API Server
+
+**URL:** `${getAPIURL()}` (defaults to `http://localhost:8000`)  
+**Protocol:** HTTP/HTTPS (depends on build-time env var)  
+**Authentication:** Session cookie (HttpOnly, backend-set)
+
+**Endpoints Used:**
+
+| **Method** | **Endpoint** | **Purpose** | **Auth Required** | **Response** |
+|-----------|-------------|-----------|------------------|------------|
+| GET | `/me` | Check current user login status | Yes (cookie) | User object or 401 |
+| POST | `/login/google?redirect=<path>` | Initiate Google OAuth flow | No | Redirect to Google; then back to app |
+| GET | `/logout` | Clear session | Yes (cookie) | Redirect to home or logout page |
+| GET | `/projects` | List all projects | No | Array of Project objects |
+| GET | `/projects/:id` | Fetch single project | No | Project object or 404 |
+| POST | `/projects` | Create new project | Yes (cookie) | Project object (with ID) or error |
+| PUT | `/projects/:id` | Update project | Yes (cookie) + ownership | Updated Project object or 403/404 |
+| DELETE | `/projects/:id` | Delete project | Yes (cookie) + ownership | 204 No Content or 403/404 |
+| GET | `/users` | List all users (for co-ownership selection) | No | Array of User objects (id, email) |
+
+**Error Handling:**
+- 4xx errors: Displayed to user as "An error occurred while X"
+- 5xx errors: Treated as generic server errors; details hidden from user
+- Network errors (no response): Caught in catch block; error state set
+
+---
+
+### Google OAuth 2.0
+
+**Provider:** Google  
+**Flow:** Backend-delegated OAuth Authorization Code flow  
+**Frontend Role:** Initiates redirect to `${getAPIURL()}/login/google`; receives redirect back
+
+**Data Exchanged:**
+1. User consents on Google sign-in screen (managed by backend)
+2. Backend exchanges auth code for ID token + refresh token
+3. Backend stores user info locally; no token returned to frontend
+
+**Security:**
+- OAuth secrets (client ID/secret) held by backend only
+- Frontend never sees access tokens or refresh tokens
+- PKCE or other advanced OAuth features: Not determined from frontend code (backend implementation detail)
+
+---
+
+## Environment Variables & Secrets Inventory
+
+### Build-Time Environment Variables (Public)
+
+| **Variable** | **Purpose** | **Example** | **Required** | **Notes** |
+|-----------|-----------|-----------|-----------|----------|
+| `REACT_APP_API_URL` | Backend API endpoint | `https://api.hackbca.example.com` | No; defaults to `http://localhost:8000` | Exposed in all network requests; not a secret |
+
+### Derived Configuration (Frontend Logic)
+
+| **Source** | **Derived Value** | **Usage** |
+|-----------|-----------------|---------|
+| `REACT_APP_API_URL` | Login redirect URL: `${getAPIURL()}/login/google?redirect=...` | Navbar, Home page |
+| `REACT_APP_API_URL` | Logout redirect URL: `${getAPIURL()}/logout` | Navbar |
+| `REACT_APP_API_URL` | API base URL for all fetch calls | All pages |
+
+### Secrets (NOT in Frontend)
+
+The following are backend-held and NOT exposed in frontend code:
+
+- Google OAuth Client ID (backend uses to redirect to Google; frontend only sees logout/login URLs)
+- Google OAuth Client Secret (backend-only)
+- Database credentials
+- API authentication tokens or keys (session cookie is bearer token, HttpOnly-protected)
+- Third-party API keys (if any)
+
+### No .env.example File Found
+
+Repository does not contain `.env.example` or `.env` template. Developers must manually set `REACT_APP_API_URL` during build or via environment variable.
+
+**Recommendation:** Add `.env.example`:
+```
+REACT_APP_API_URL=http://localhost:8000
+```
+
+---
+
+## Change Log
+
+**2026-09-14 — Initial Bootstrap**
+- Created HLD from repository analysis
+- Documented architecture: React Router, Pages, Components, API integrations
+- Identified workflows: Auth, Browse, Create/Edit, Delete projects
+- Mapped data flows: User, Project, User List
+- Outlined deployment: Static build artifact, HTTPS, configurable backend URL
+- Noted security: Google OAuth delegation, session cookies, no frontend secrets
+- Flagged gaps: No `.env.example`, no monitoring endpoint known, dependency audit recommended
