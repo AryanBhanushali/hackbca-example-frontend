@@ -219,3 +219,114 @@ flowchart TB
 | **Loading States** | Spinner icons during async operations | ✓ Implemented |
 | **Mobile Responsive** | Flexbox/grid; responsive typography | Partial (not optimized for mobile) |
 
+## Data Flow
+
+### User & Authentication Data
+
+- **Origination:** Google OAuth backend flow; backend stores user records in database
+- **Storage:** Backend database (entity: `User`)
+- **Transit:** JSON over HTTPS; session cookie (HttpOnly, SameSite)
+- **Lifetime:** Session persists for duration of browser session; cleared on logout or cookie expiry
+- **Accessed by:** All pages via `AuthContext`; especially Navbar, ProjectForm, Projects
+
+### Project Data
+
+- **Origination:** User form submissions or backend creation
+- **Storage:** Backend database (entity: `Project`)
+- **Transit:** JSON over HTTPS in request/response bodies
+- **Lifetime:** Persistent in backend; project objects immutable on frontend (no local caching)
+- **CRUD Endpoints:**
+  - `GET /projects` — list all projects
+  - `GET /projects/:id` — fetch single project details
+  - `POST /projects` — create new project (requires auth)
+  - `PUT /projects/:id` — update project (requires auth, owner check)
+  - `DELETE /projects/:id` — delete project (requires auth, owner check)
+
+### User List (For Co-Ownership Selection)
+
+- **Origination:** Backend user table
+- **Storage:** Backend database
+- **Transit:** JSON over HTTPS; `GET /users` endpoint
+- **Lifetime:** Fetched on-demand during project form load; no caching
+- **Used by:** ProjectForm.js for populating co-owner dropdown
+
+## Infrastructure & Deployment Overview
+
+### Build & Deployment Pipeline
+
+**Build Step:**
+```
+npm install          # Resolve dependencies
+npm run build        # Craco build: compiles JSX, applies Tailwind, minifies
+                     # Output: ./build/ directory (static assets)
+```
+
+**Environment Configuration:**
+- `REACT_APP_API_URL` — Backend API endpoint; defaults to `http://localhost:8000` if unset
+- Set via `.env` file or build-time environment variable
+
+**Deployment Artifact:**
+- Static files in `build/` directory
+- Suitable for any static host: CDN (Vercel, Netlify), S3 + CloudFront, Apache, Nginx, etc.
+- No server-side runtime required
+
+**Hosting Options (Not Determined from Repository):**
+- Environment-specific deployment configuration not found in repo
+- Assumed: CI/CD pipeline exists to deploy `build/` to production host
+
+### Development Environment
+
+- **Node.js Version:** Not determined from repository
+- **Package Manager:** npm (see package.json and package-lock.json)
+- **Dev Server:** `npm start` runs Craco dev server (port 3000, typically)
+- **Test Runner:** `npm test` (Jest + react-testing-library, per package.json)
+
+### Browser Support
+
+From `package.json` browserslist:
+- **Production:** Modern browsers only; >0.2% market share, not dead, not op_mini
+- **Development:** Last version of Chrome, Firefox, Safari
+
+### Dependencies (Security-Relevant)
+
+| **Package** | **Purpose** | **Version** | **Notes** |
+|-------------|-----------|-----------|----------|
+| `react` | UI framework | ^17.0.2 | Core dependency |
+| `react-dom` | DOM rendering | ^17.0.2 | Core dependency |
+| `react-router-dom` | Client-side routing | ^6.0.1 | Relatively recent; v6 API used |
+| `formik` | Form state management | ^2.2.9 | Handles validation, submission |
+| `react-overlays` | Modal component library | ^5.1.1 | Provides Modal primitive |
+| `tailwindcss` | CSS utility framework | @tailwindcss/postcss7-compat@^2.2.17 | PostCSS 7 compat variant |
+| `@fortawesome/react-fontawesome` | Icon library | ^0.1.16 | Displays FontAwesome icons |
+
+## Deployment Strategy
+
+### Build Process
+
+1. **Install Dependencies:** `npm install` (or `npm ci` in CI)
+2. **Set Environment:** Export `REACT_APP_API_URL` (e.g., `REACT_APP_API_URL=https://api.example.com`)
+3. **Build:** `npm run build` → outputs minified static files to `build/`
+4. **Verify:** (Not determined from repo; CI/CD should run tests: `npm test`)
+5. **Deploy:** Copy `build/` contents to static host
+
+### Deployment Environments
+
+**Development:**
+- `REACT_APP_API_URL=http://localhost:8000`
+- Served locally via `npm start`
+
+**Staging/Production:**
+- `REACT_APP_API_URL=https://api.hackbca.example.com` (or similar)
+- Served via CDN or static host
+- Deployed on git push to main branch (assumed; not determined from repo)
+
+### Rollback & Versioning
+
+- **Versioning:** Not determined from repository (no semantic version or tag strategy found)
+- **Rollback:** Assumed available on deployment platform (CDN/S3 versioning, git revert, etc.)
+
+### Monitoring & Observability (Not Determined)
+
+- Error tracking: Not determined (Sentry, LogRocket, or similar not configured in code)
+- Performance monitoring: `reportWebVitals()` exists but endpoint unknown
+- Logging: Browser console only; no centralized logging
